@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -113,3 +113,43 @@ jobs:
             echo "oras pull ${REF}:${FLOATING}"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
+
+          # systemd-sysupdate source: all images live in one release, listed by SHA256SUMS
+          gh release view zen-browser > /dev/null 2>&1 ||
+            gh release create zen-browser --title "zen-browser systemd system extensions for Fedora" \
+              --notes "Sysupdate source for zen-browser.conf: images and SHA256SUMS." ||
+            gh release view zen-browser > /dev/null
+          gh release upload zen-browser "${raw}" --clobber
+
+  # Runs once after every build job: sysupdate reads SHA256SUMS to list the images
+  index:
+    name: "Release index"
+    needs: zen-browser
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: "Prune old images and publish SHA256SUMS"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          list() {
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/zen-browser" \
+              --jq '.assets[] | select(.name | endswith(".raw")) | "\(.digest | sub("^sha256:"; ""))  \(.name)"'
+          }
+
+          # Keep the two newest images per Fedora release and architecture
+          list | sort -k2 -V | awk '{
+            match($2, /[0-9]+-(x86-64|arm64)\.raw$/); key = substr($2, RSTART)
+            names[key] = names[key] " " $2
+          } END { for (k in names) print names[k] }' |
+            while read -r -a images; do
+              for ((i = 0; i < ${#images[@]} - 2; i++)); do
+                gh release delete-asset zen-browser "${images[i]}" --yes
+              done
+            done
+
+          list > SHA256SUMS
+          gh release upload zen-browser SHA256SUMS zen-browser/zen-browser.conf --clobber
