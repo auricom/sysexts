@@ -1,0 +1,37 @@
+name := "zen-browser"
+packages := "zen-browser"
+copr_repos := "sneexy/zen-browser"
+
+import '../sysext.just'
+
+all: default
+
+install-manual:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    if [[ "${UID}" == "0" ]]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
+
+    cd rootfs
+
+    # sysexts can not ship /opt: move Zen to /usr/lib/zen
+    ${SUDO} install -d -m 0755 usr/lib
+    ${SUDO} mv opt/zen usr/lib/zen
+    ${SUDO} sed -i 's|/opt/zen/|/usr/lib/zen/|g' usr/bin/zen-browser
+    # Re-point the hicolor icon symlinks (and any other link) into /opt/zen
+    for l in $(find usr -lname '*opt/zen/*'); do
+        ${SUDO} ln -sfn "/usr/lib/zen/$(readlink "${l}" | sed 's|.*opt/zen/||')" "${l}"
+    done
+
+    # Fail the build if anything still points at /opt
+    if grep -rIl '/opt/zen' usr/bin usr/share || [[ -n "$(find usr -lname '*opt/*')" ]]; then
+        echo "❌ Leftover references to /opt/zen"
+        exit 1
+    fi
