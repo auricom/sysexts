@@ -6,6 +6,7 @@ on:
       - ".github/workflows/sysexts.yml"
       - "sysext.just"
       - "zen-browser/**"
+      - "recur/**"
   push:
     branches:
       - "main"
@@ -13,7 +14,8 @@ on:
       - ".github/workflows/sysexts.yml"
       - "sysext.just"
       - "zen-browser/**"
-  # The COPR gets new releases without any commit here
+      - "recur/**"
+  # Upstreams get new releases without any commit here
   schedule:
     - cron: "0 0 * * *"
   workflow_dispatch:
@@ -27,14 +29,17 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  zen-browser:
-    name: "zen-browser (Fedora ${{ matrix.fedora }}, ${{ matrix.runner }})"
+  build:
+    name: "${{ matrix.sysext }} (Fedora ${{ matrix.fedora }}, ${{ matrix.runner }})"
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        fedora: ["43", "44", "45"]
-        runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
+        sysext: ["zen-browser", "recur"]
+        fedora: ["45"]
+        runner: 
+          - "ubuntu-26.04"
+          # - "ubuntu-26.04-arm"
     env:
       IMAGE: "quay.io/fedora-ostree-desktops/base-atomic:${{ matrix.fedora }}"
     steps:
@@ -50,12 +55,12 @@ jobs:
       # The whole build runs as root: files created with sudo can not be
       # relabeled by a rootless podman. podman is preinstalled on the runners.
       - name: "Download packages"
-        working-directory: zen-browser
+        working-directory: ${{ matrix.sysext }}
         run: sudo env "PATH=${PATH}" just prepare-build "${IMAGE}"
 
       - name: "Check if already published"
         id: check
-        working-directory: zen-browser
+        working-directory: ${{ matrix.sysext }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -64,7 +69,7 @@ jobs:
             x86_64) arch="x86-64" ;;
             aarch64) arch="arm64" ;;
           esac
-          ref="ghcr.io/${GITHUB_REPOSITORY,,}/zen-browser"
+          ref="ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.sysext }}"
           tag="$(cat version)-$(cat version_id)-${arch}"
           {
             echo "ref=${ref}"
@@ -84,14 +89,15 @@ jobs:
 
       - name: "Build sysext"
         if: steps.check.outputs.skip != 'true'
-        working-directory: zen-browser
+        working-directory: ${{ matrix.sysext }}
         run: sudo env "PATH=${PATH}" just resume-build "${IMAGE}"
 
       - name: "Publish to ghcr.io"
         if: steps.check.outputs.skip != 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        working-directory: zen-browser
+        working-directory: ${{ matrix.sysext }}
         env:
           GH_TOKEN: ${{ github.token }}
+          SYSEXT: ${{ matrix.sysext }}
           REF: ${{ steps.check.outputs.ref }}
           TAG: ${{ steps.check.outputs.tag }}
           FLOATING: ${{ steps.check.outputs.floating }}
@@ -99,7 +105,7 @@ jobs:
           set -euo pipefail
           echo "${GH_TOKEN}" | oras login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
 
-          raw="$(ls zen-browser-*.raw)"
+          raw="$(ls ${SYSEXT}-*.raw)"
           oras push "${REF}:${TAG}" \
             --artifact-type application/vnd.systemd.sysext \
             --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
@@ -115,28 +121,32 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
           # systemd-sysupdate source: all images live in one release, listed by SHA256SUMS
-          gh release view zen-browser > /dev/null 2>&1 ||
-            gh release create zen-browser --title "zen-browser systemd system extensions for Fedora" \
-              --notes "Sysupdate source for zen-browser.conf: images and SHA256SUMS." ||
-            gh release view zen-browser > /dev/null
-          gh release upload zen-browser "${raw}" --clobber
+          gh release view "${SYSEXT}" > /dev/null 2>&1 ||
+            gh release create "${SYSEXT}" --title "${SYSEXT} systemd system extensions for Fedora" \
+              --notes "Sysupdate source for ${SYSEXT}.conf: images and SHA256SUMS." ||
+            gh release view "${SYSEXT}" > /dev/null
+          gh release upload "${SYSEXT}" "${raw}" --clobber
 
   # Runs once after every build job: sysupdate reads SHA256SUMS to list the images
   index:
-    name: "Release index"
-    needs: zen-browser
+    name: "Release index (${{ matrix.sysext }})"
+    needs: build
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        sysext: ["zen-browser", "recur"]
     steps:
       - uses: actions/checkout@v6
 
       - name: "Prune old images and publish SHA256SUMS"
         env:
           GH_TOKEN: ${{ github.token }}
+          SYSEXT: ${{ matrix.sysext }}
         run: |
           set -euo pipefail
           list() {
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/zen-browser" \
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${SYSEXT}" \
               --jq '.assets[] | select(.name | endswith(".raw")) | "\(.digest | sub("^sha256:"; ""))  \(.name)"'
           }
 
@@ -147,9 +157,9 @@ jobs:
           } END { for (k in names) print names[k] }' |
             while read -r -a images; do
               for ((i = 0; i < ${#images[@]} - 2; i++)); do
-                gh release delete-asset zen-browser "${images[i]}" --yes
+                gh release delete-asset "${SYSEXT}" "${images[i]}" --yes
               done
             done
 
           list > SHA256SUMS
-          gh release upload zen-browser SHA256SUMS zen-browser/zen-browser.conf --clobber
+          gh release upload "${SYSEXT}" SHA256SUMS "${SYSEXT}/${SYSEXT}.conf" --clobber

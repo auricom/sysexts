@@ -1,0 +1,70 @@
+name := "recur"
+
+import '../sysext.just'
+
+repo := "https://github.com/celestiaorg/recur-releases"
+
+# Recur is not in any Fedora repository: download the upstream RPM
+download-manual arch=arch:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    case "{{arch}}" in
+        x86_64) upstream_arch="amd64" ;;
+        aarch64) upstream_arch="arm64" ;;
+        *) echo "Unsupported architecture: {{arch}}"; exit 1 ;;
+    esac
+
+    # /releases/latest redirects to /releases/tag/<tag>
+    tag="$(curl -fsSL -o /dev/null -w '%{url_effective}' "{{repo}}/releases/latest")"
+    tag="${tag##*/}"
+    rpm="Recur-${tag#v}-linux-${upstream_arch}.rpm"
+
+    echo "⬇️ Downloading ${rpm}"
+    mkdir rpms
+    cd rpms
+    curl -fsSL -O "{{repo}}/releases/download/${tag}/${rpm}"
+    curl -fsSL "{{repo}}/releases/download/${tag}/SHA256SUMS" | grep -F "  ${rpm}" | sha256sum -c -
+
+version:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    rpm="$(ls rpms/Recur-*.rpm)"
+    rpm -qp --queryformat '%{VERSION}-%{RELEASE}' "${rpm}" > ./version
+
+install-manual:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    if [[ "${UID}" == "0" ]]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
+
+    cd rootfs
+
+    echo "📦 Extracting $(ls ../rpms/Recur-*.rpm)"
+    rpm2cpio ../rpms/Recur-*.rpm | ${SUDO} cpio -idm &> /dev/null
+
+    # sysexts can not ship /opt: move Recur to /usr/lib/recur
+    ${SUDO} install -d -m 0755 usr/lib
+    ${SUDO} mv opt/recur usr/lib/recur
+    ${SUDO} sed -i 's|/opt/recur/|/usr/lib/recur/|g' usr/share/applications/build.recur.app.desktop
+    ${SUDO} ln -sfn /usr/lib/recur/recur-cli usr/bin/recur
+
+    # Fail the build if anything still points at /opt
+    if grep -rIl '/opt/recur' usr || [[ -n "$(find usr -lname '*opt/*')" ]]; then
+        echo "❌ Leftover references to /opt/recur"
+        exit 1
+    fi

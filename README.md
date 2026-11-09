@@ -2,7 +2,7 @@
 
 ## Build
 
-Install `cpio erofs-utils jq just podman`, then:
+Install `cpio erofs-utils jq just podman` (plus `rpm rpm2cpio curl` for `recur`), then, for the `zen-browser` or `recur` directory:
 
 ```sh
 cd zen-browser
@@ -29,15 +29,15 @@ box with `distrobox rm sysext-builder`.
 
 ## Publishing
 
-`.github/workflows/sysexts.yml` builds `zen-browser` for Fedora 43, 44 and 45
+`.github/workflows/sysexts.yml` builds `zen-browser` and `recur` for Fedora 43, 44 and 45
 on x86_64 and aarch64, and pushes each build as an OCI artifact to
-`ghcr.io/auricom/sysexts/zen-browser`:
+`ghcr.io/auricom/sysexts/<name>`:
 
 - Pull requests only build.
 - Pushes to `main` (and manual runs) rebuild and publish.
-- A nightly run publishes only when the COPR has a new version.
+- A nightly run publishes only when upstream has a new version.
 
-Tags are `<version>-<fedora>-<arch>` (for example `1.24.1b-1.fc45-45-x86-64`)
+Tags are `<version>-<fedora>-<arch>` (for example `1.24.1b-1.fc45-45-x86-64` for `zen-browser`)
 plus a moving `<fedora>-<arch>` tag (for example `45-x86-64`). The first push
 creates the package as private: make it public in the package settings to pull
 it without logging in. Then install it with:
