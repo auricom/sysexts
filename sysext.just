@@ -768,9 +768,9 @@ reset-selinux-labels target arch=arch:
         if [[ -n "{{packages}}" ]]; then
             pre_commands+="dnf install -y ${dnf_opts} ${disablerepos} ./rpms/* && "
         fi
-
-        mkdir -p ../.dnf-cache
     fi
+
+    mkdir -p ../.dnf-cache
 
     filecontexts="/etc/selinux/targeted/contexts/files/file_contexts"
     echo "🏷️ Resetting SELinux labels"
