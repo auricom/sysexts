@@ -8,6 +8,7 @@ on:
       - "zen-browser/**"
       - "recur/**"
       - "resilio-sync/**"
+      - "1password-gui/**"
   push:
     branches:
       - "main"
@@ -17,6 +18,7 @@ on:
       - "zen-browser/**"
       - "recur/**"
       - "resilio-sync/**"
+      - "1password-gui/**"
   # Upstreams get new releases without any commit here
   schedule:
     - cron: "0 0 * * *"
@@ -37,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sysext: ["zen-browser", "recur", "resilio-sync"]
+        sysext: ["zen-browser", "recur", "resilio-sync", "1password-gui"]
         fedora: ["45"]
         runner: 
           - "ubuntu-26.04"
@@ -137,7 +139,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        sysext: ["zen-browser", "recur", "resilio-sync"]
+        sysext: ["zen-browser", "recur", "resilio-sync", "1password-gui"]
     steps:
       - uses: actions/checkout@v6
 
