@@ -1,0 +1,31 @@
+name := "resilio-sync"
+packages := "resilio-sync"
+
+# Resilio only publishes a signed RPM repository, no .repo file
+pre_commands := "rpm --import https://linux-packages.resilio.com/resilio-sync/key.asc && printf '[resilio-sync]\\nname=Resilio Sync\\nbaseurl=https://linux-packages.resilio.com/resilio-sync/rpm/" + arch + "\\nenabled=1\\ngpgcheck=1\\ngpgkey=https://linux-packages.resilio.com/resilio-sync/key.asc\\n' > /etc/yum.repos.d/resilio-sync.repo"
+
+# Install the sysusers.d and tmpfiles.d snippets from this directory
+files := "usr"
+
+import '../sysext.just'
+
+install-manual:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    if [[ "${UID}" == "0" ]]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
+
+    cd rootfs
+
+    # The RPM installs its units in /lib (a symlink to /usr/lib on Fedora)
+    ${SUDO} cp -a lib/. usr/lib/
+    ${SUDO} rm -rf lib
+    # SysV init script is useless on systemd
+    ${SUDO} rm -rf etc/init.d

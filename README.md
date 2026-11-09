@@ -2,7 +2,7 @@
 
 ## Build
 
-Install `cpio erofs-utils jq just podman` (plus `rpm rpm2cpio curl` for `recur`), then, for the `zen-browser` or `recur` directory:
+Install `cpio erofs-utils jq just podman` (plus `rpm rpm2cpio curl` for `recur`), then, for the `zen-browser`, `recur` or `resilio-sync` directory:
 
 ```sh
 cd zen-browser
@@ -29,7 +29,7 @@ box with `distrobox rm sysext-builder`.
 
 ## Publishing
 
-`.github/workflows/sysexts.yml` builds `zen-browser` and `recur` for Fedora 43, 44 and 45
+`.github/workflows/sysexts.yml` builds `zen-browser`, `recur` and `resilio-sync` for Fedora 43, 44 and 45
 on x86_64 and aarch64, and pushes each build as an OCI artifact to
 `ghcr.io/auricom/sysexts/<name>`:
 
