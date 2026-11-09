@@ -1,0 +1,98 @@
+name := "1password-gui"
+
+import '../sysext.just'
+
+# 1Password only publishes x86_64 RPMs
+base_images := "
+quay.io/fedora-ostree-desktops/base-atomic:43 x86_64
+quay.io/fedora-ostree-desktops/base-atomic:44 x86_64
+quay.io/fedora-ostree-desktops/base-atomic:45 x86_64
+"
+
+files := "usr"
+
+rpm_url := "https://downloads.1password.com/linux/rpm/stable/x86_64/1password-latest.rpm"
+key_url := "https://downloads.1password.com/linux/keys/1password.asc"
+
+# Download the upstream RPM and refuse to build unless its signature verifies
+download-manual arch=arch:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    if [[ "{{arch}}" != "x86_64" ]]; then
+        echo "Unsupported architecture: {{arch}}"
+        exit 1
+    fi
+
+    echo "⬇️ Downloading 1password-latest.rpm"
+    mkdir rpms
+    cd rpms
+    curl -fsSL -O "{{rpm_url}}"
+    curl -fsSL -o 1password.asc "{{key_url}}"
+
+    echo "🔏 Verifying RPM signature"
+    mkdir rpmdb
+    rpmkeys --dbpath "${PWD}/rpmdb" --import 1password.asc
+    rpmkeys --dbpath "${PWD}/rpmdb" --define '_pkgverify_level all' -K 1password-latest.rpm
+    rm -rf rpmdb 1password.asc
+
+version:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    rpm -qp --queryformat '%{VERSION}-%{RELEASE}' rpms/1password-latest.rpm > ./version
+
+install-manual:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    if [[ "${UID}" == "0" ]]; then
+        SUDO=""
+    else
+        SUDO="sudo"
+    fi
+
+    cd rootfs
+
+    echo "📦 Extracting 1password-latest.rpm"
+    rpm2cpio ../rpms/1password-latest.rpm | ${SUDO} cpio -idm &> /dev/null
+
+    # sysexts can not ship /opt: move 1Password to /usr/lib/1Password
+    ${SUDO} install -d -m 0755 usr/lib usr/bin
+    ${SUDO} mv opt/1Password usr/lib/1Password
+    ${SUDO} rmdir opt
+
+    # Scriptlets never run in a sysext: their work is done here instead
+    ${SUDO} rm usr/lib/1Password/after-install.sh usr/lib/1Password/after-remove.sh
+    ${SUDO} rm -rf usr/lib/1Password/resources/apparmor-profile
+    ${SUDO} find usr -name '*.desktop' -exec sed -i 's|^Exec=/opt/1Password|Exec=/usr/lib/1Password|' {} +
+    ${SUDO} ln -sfn /usr/lib/1Password/1password usr/bin/1password
+
+    ${SUDO} chmod 4755 usr/lib/1Password/chrome-sandbox
+
+    # The setgid bit hardens the helper: it aborts without it. GIDs must match
+    # usr/lib/sysusers.d/1password-gui.conf
+    ${SUDO} chgrp 1500 usr/lib/1Password/1Password-BrowserSupport
+    ${SUDO} chmod 2755 usr/lib/1Password/1Password-BrowserSupport
+
+    if [[ -f usr/lib/1Password/1password-mcp ]]; then
+        ${SUDO} chgrp 1501 usr/lib/1Password/1password-mcp
+        ${SUDO} chmod 2755 usr/lib/1Password/1password-mcp
+        ${SUDO} ln -sfn /usr/lib/1Password/1password-mcp usr/lib/1Password/onepassword-mcp
+        ${SUDO} ln -sfn /usr/lib/1Password/1password-mcp usr/bin/1password-mcp
+    fi
+
+    # Fail the build if anything still points at /opt
+    if grep -rIl '/opt/1Password' usr || [[ -n "$(find usr -lname '*opt/*')" ]]; then
+        echo "❌ Leftover references to /opt/1Password"
+        exit 1
+    fi
