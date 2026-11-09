@@ -1,0 +1,115 @@
+name: "Build and publish sysexts"
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/sysexts.yml"
+      - "sysext.just"
+      - "zen-browser/**"
+  push:
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/sysexts.yml"
+      - "sysext.just"
+      - "zen-browser/**"
+  # The COPR gets new releases without any commit here
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  zen-browser:
+    name: "zen-browser (Fedora ${{ matrix.fedora }}, ${{ matrix.runner }})"
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ["43", "44", "45"]
+        runner: ["ubuntu-24.04", "ubuntu-24.04-arm"]
+    env:
+      IMAGE: "quay.io/fedora-ostree-desktops/base-atomic:${{ matrix.fedora }}"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: extractions/setup-just@v3
+
+      - uses: oras-project/setup-oras@v1
+
+      - name: "Install build tools"
+        run: sudo apt-get update && sudo apt-get install -y cpio erofs-utils jq rpm rpm2cpio
+
+      # The whole build runs as root: files created with sudo can not be
+      # relabeled by a rootless podman. podman is preinstalled on the runners.
+      - name: "Download packages"
+        working-directory: zen-browser
+        run: sudo env "PATH=${PATH}" just prepare-build "${IMAGE}"
+
+      - name: "Check if already published"
+        id: check
+        working-directory: zen-browser
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch="x86-64" ;;
+            aarch64) arch="arm64" ;;
+          esac
+          ref="ghcr.io/${GITHUB_REPOSITORY,,}/zen-browser"
+          tag="$(cat version)-$(cat version_id)-${arch}"
+          {
+            echo "ref=${ref}"
+            echo "tag=${tag}"
+            echo "floating=$(cat version_id)-${arch}"
+          } >> "${GITHUB_OUTPUT}"
+
+          # Pushes and manual runs always rebuild (the scripts may have changed).
+          # The nightly run only builds when the COPR has a new version.
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            echo "${GH_TOKEN}" | oras login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+            if oras manifest fetch "${ref}:${tag}" > /dev/null 2>&1; then
+              echo "${ref}:${tag} is already published, skipping" | tee -a "${GITHUB_STEP_SUMMARY}"
+              echo "skip=true" >> "${GITHUB_OUTPUT}"
+            fi
+          fi
+
+      - name: "Build sysext"
+        if: steps.check.outputs.skip != 'true'
+        working-directory: zen-browser
+        run: sudo env "PATH=${PATH}" just resume-build "${IMAGE}"
+
+      - name: "Publish to ghcr.io"
+        if: steps.check.outputs.skip != 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        working-directory: zen-browser
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ steps.check.outputs.ref }}
+          TAG: ${{ steps.check.outputs.tag }}
+          FLOATING: ${{ steps.check.outputs.floating }}
+        run: |
+          set -euo pipefail
+          echo "${GH_TOKEN}" | oras login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+          raw="$(ls zen-browser-*.raw)"
+          oras push "${REF}:${TAG}" \
+            --artifact-type application/vnd.systemd.sysext \
+            --annotation "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            "${raw}:application/vnd.erofs"
+          # Moving tag for the latest build on this Fedora release and arch
+          oras tag "${REF}:${TAG}" "${FLOATING}"
+
+          {
+            echo "Published \`${REF}:${TAG}\` (also \`:${FLOATING}\`):"
+            echo '```sh'
+            echo "oras pull ${REF}:${FLOATING}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"

@@ -6,6 +6,34 @@ import '../sysext.just'
 
 all: default
 
+# Debian box for distrobox-build: it has every build tool, podman is forwarded
+# to the host
+distrobox_name := "sysext-builder"
+distrobox_image := "docker.io/library/debian:stable"
+
+# Build inside a Debian distrobox: the host only needs just, distrobox, podman
+distrobox-build target arch=arch:
+    #!/bin/bash
+    set -euo pipefail
+    if [[ -n "{{debug}}" ]]; then
+      set -x
+    fi
+
+    if ! podman container exists "{{distrobox_name}}"; then
+        distrobox create --yes --name "{{distrobox_name}}" --image "{{distrobox_image}}" \
+            --additional-packages "just cpio erofs-utils jq rpm rpm2cpio curl"
+    fi
+
+    # Clean PATH: the host one can hold mise shims that break in the box
+    box() {
+        distrobox enter "{{distrobox_name}}" -- env PATH=/usr/local/bin:/usr/bin:/bin "${@}"
+    }
+    # distrobox-host-exec runs the command named like its symlink on the host
+    box sudo ln -sf /usr/bin/distrobox-host-exec /usr/local/bin/podman
+    # Install host-spawn now so the build never stops on its download prompt
+    box distrobox-host-exec --yes true
+    box just build "{{target}}" "{{arch}}"
+
 install-manual:
     #!/bin/bash
     set -euo pipefail

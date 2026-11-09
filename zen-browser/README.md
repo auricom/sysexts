@@ -5,4 +5,8 @@
 - Zen ships in `/opt/zen`, which a sysext can not provide, so the build moves it to `/usr/lib/zen` and repoints the `zen-browser` wrapper and the icon symlinks.
 - The package ships `/usr/lib/zen/distribution/policies.json`, which is meant to disable in-app updates: update the sysext instead.
 
-Not yet built or run: the `rpms/` dependency pull-in result is still to be recorded here after the first build.
+## Status
+
+Built for Fedora 45 x86_64 (zen-browser 1.24.1b). The `zen-browser` RPM is the only package downloaded: the base image already provides its dependencies. The result has no `/opt` left and the wrapper and icons point to `/usr/lib/zen`.
+
+Not tested: running the merged sysext, and aarch64.
