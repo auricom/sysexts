@@ -7,6 +7,7 @@ on:
       - "sysext.just"
       - "zen-browser/**"
       - "recur/**"
+      - "resilio-sync/**"
   push:
     branches:
       - "main"
@@ -15,6 +16,7 @@ on:
       - "sysext.just"
       - "zen-browser/**"
       - "recur/**"
+      - "resilio-sync/**"
   # Upstreams get new releases without any commit here
   schedule:
     - cron: "0 0 * * *"
@@ -35,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sysext: ["zen-browser", "recur"]
+        sysext: ["zen-browser", "recur", "resilio-sync"]
         fedora: ["45"]
         runner: 
           - "ubuntu-26.04"
@@ -135,7 +137,7 @@ jobs:
     runs-on: ubuntu-24.04
     strategy:
       matrix:
-        sysext: ["zen-browser", "recur"]
+        sysext: ["zen-browser", "recur", "resilio-sync"]
     steps:
       - uses: actions/checkout@v6
 
