@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Timothée Ravier <tim@siosm.fr>
+# SPDX-License-Identifier: CC0-1.0
+
+rootfs/
+binaries/
+*.erofs
+*.raw
+*.rpm
+version
+version_id
+inputs
+digest
+scripts
+/.dnf-cache/
